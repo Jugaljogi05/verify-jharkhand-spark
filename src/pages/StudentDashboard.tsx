@@ -5,30 +5,17 @@ import { useAuth } from '@/contexts/AuthContext';
 import { 
   Upload, 
   FileText, 
-  CheckCircle, 
-  XCircle, 
-  Clock, 
   Award,
   TrendingUp,
   Shield,
   Plus,
-  Eye,
-  Download,
-  Trash2
+  Clock
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
-
-interface Certificate {
-  id: string;
-  name: string;
-  type: string;
-  institution: string;
-  issueDate: string;
-  status: 'verified' | 'pending' | 'failed';
-  uploadDate: string;
-  certificateNumber?: string;
-  grade?: string;
-}
+import CertificateCard from '@/components/student/CertificateCard';
+import CertificateViewer from '@/components/student/CertificateViewer';
+import type { Certificate } from '@/types/certificate';
+import { simulateOCR } from '@/utils/ocrSimulation';
 
 const StudentDashboard: React.FC = () => {
   const { user } = useAuth();
@@ -42,7 +29,15 @@ const StudentDashboard: React.FC = () => {
       status: 'verified',
       uploadDate: '2024-01-10',
       certificateNumber: 'JU/2023/BTech/001',
-      grade: 'First Class'
+      grade: 'First Class',
+      extractedText: 'This is to certify that Rahul Kumar Singh has successfully completed...',
+      ocrData: {
+        studentName: 'Rahul Kumar Singh',
+        rollNumber: 'JU201945',
+        marks: '85%',
+        year: '2023',
+        department: 'Computer Science'
+      }
     },
     {
       id: '2',
@@ -52,32 +47,43 @@ const StudentDashboard: React.FC = () => {
       issueDate: '2023-12-01',
       status: 'pending',
       uploadDate: '2024-01-15',
-      certificateNumber: 'CRS-DS-2023-456'
+      certificateNumber: 'CRS-DS-2023-456',
+      extractedText: 'Certificate of Completion for Data Science Specialization...'
     }
   ]);
 
   const [isDragging, setIsDragging] = useState(false);
+  const [selectedCertificate, setSelectedCertificate] = useState<Certificate | null>(null);
+  const [isViewerOpen, setIsViewerOpen] = useState(false);
 
   const handleFileUpload = (files: FileList | null) => {
     if (!files) return;
 
     Array.from(files).forEach(file => {
       if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
+        // Simulate OCR processing
+        const ocrResult = simulateOCR(file.name);
+        
+        // Create a fake URL for the file (in real app, this would be uploaded to storage)
+        const fakeFileUrl = URL.createObjectURL(file);
+        
         const newCertificate: Certificate = {
-          id: String(certificates.length + 1),
+          id: String(Date.now() + Math.random()),
           name: file.name.replace(/\.[^/.]+$/, ''),
           type: 'Document',
           institution: 'Pending Verification',
           issueDate: new Date().toISOString().split('T')[0],
           status: 'pending',
-          uploadDate: new Date().toISOString().split('T')[0]
+          uploadDate: new Date().toISOString().split('T')[0],
+          fileUrl: fakeFileUrl,
+          ...ocrResult
         };
 
         setCertificates(prev => [...prev, newCertificate]);
 
         toast({
           title: 'Certificate Uploaded',
-          description: `${file.name} has been uploaded and is being verified.`,
+          description: `${file.name} has been uploaded. OCR processing complete.`,
         });
 
         // Simulate verification process
@@ -85,10 +91,19 @@ const StudentDashboard: React.FC = () => {
           setCertificates(prev => 
             prev.map(cert => 
               cert.id === newCertificate.id 
-                ? { ...cert, status: Math.random() > 0.3 ? 'verified' : 'failed' }
+                ? { 
+                    ...cert, 
+                    status: Math.random() > 0.3 ? 'verified' : 'failed',
+                    institution: cert.ocrData?.department ? 'Jharkhand University' : cert.institution
+                  }
                 : cert
             )
           );
+          
+          toast({
+            title: 'Verification Complete',
+            description: `${file.name} verification process completed.`,
+          });
         }, 3000);
       } else {
         toast({
@@ -116,26 +131,34 @@ const StudentDashboard: React.FC = () => {
     handleFileUpload(e.dataTransfer.files);
   };
 
-  const getStatusIcon = (status: Certificate['status']) => {
-    switch (status) {
-      case 'verified':
-        return <CheckCircle className="h-5 w-5 text-success" />;
-      case 'pending':
-        return <Clock className="h-5 w-5 text-warning" />;
-      case 'failed':
-        return <XCircle className="h-5 w-5 text-destructive" />;
-    }
+  const handleViewCertificate = (certificate: Certificate) => {
+    setSelectedCertificate(certificate);
+    setIsViewerOpen(true);
   };
 
-  const getStatusBadge = (status: Certificate['status']) => {
-    switch (status) {
-      case 'verified':
-        return <span className="status-badge-verified">Verified</span>;
-      case 'pending':
-        return <span className="status-badge-pending">Pending</span>;
-      case 'failed':
-        return <span className="status-badge-failed">Failed</span>;
-    }
+  const handleDownloadCertificate = (certificate: Certificate) => {
+    // Simulate download
+    const link = document.createElement('a');
+    link.href = certificate.fileUrl || '#';
+    link.download = `${certificate.name}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    toast({
+      title: 'Download Started',
+      description: `${certificate.name} is being downloaded.`,
+    });
+  };
+
+  const handleDeleteCertificate = (certificate: Certificate) => {
+    setCertificates(prev => prev.filter(cert => cert.id !== certificate.id));
+    
+    toast({
+      title: 'Certificate Deleted',
+      description: `${certificate.name} has been removed.`,
+      variant: 'destructive',
+    });
   };
 
   const stats = {
@@ -267,45 +290,26 @@ const StudentDashboard: React.FC = () => {
                 </div>
               ) : (
                 certificates.map((cert) => (
-                  <div
+                  <CertificateCard
                     key={cert.id}
-                    className="flex items-center justify-between p-4 rounded-lg bg-secondary/30 hover:bg-secondary/50 transition-all"
-                  >
-                    <div className="flex items-center gap-4">
-                      {getStatusIcon(cert.status)}
-                      <div>
-                        <p className="font-medium">{cert.name}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {cert.institution} • {cert.type} • Issued: {cert.issueDate}
-                        </p>
-                        {cert.certificateNumber && (
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Certificate #: {cert.certificateNumber}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      {getStatusBadge(cert.status)}
-                      <div className="flex gap-1">
-                        <Button variant="ghost" size="icon">
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon">
-                          <Download className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon">
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
+                    certificate={cert}
+                    onView={handleViewCertificate}
+                    onDownload={handleDownloadCertificate}
+                    onDelete={handleDeleteCertificate}
+                  />
                 ))
               )}
             </div>
           </CardContent>
         </Card>
       </div>
+
+      {/* Certificate Viewer Modal */}
+      <CertificateViewer
+        certificate={selectedCertificate}
+        isOpen={isViewerOpen}
+        onClose={() => setIsViewerOpen(false)}
+      />
     </div>
   );
 };
